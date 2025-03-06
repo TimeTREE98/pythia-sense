@@ -1,0 +1,6 @@
+#!/bin/sh
+echo "=== [Husky] pre-commit hook start ==="
+
+npx lint-staged
+
+echo "=== [Husky] pre-commit hook end ==="
