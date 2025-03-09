@@ -1,5 +1,6 @@
 import { plugins } from './webpack.plugins';
 import { rules } from './webpack.rules';
+import * as path from 'path';
 import type { Configuration } from 'webpack';
 
 export const mainConfig: Configuration = {
@@ -15,5 +16,8 @@ export const mainConfig: Configuration = {
   plugins,
   resolve: {
     extensions: ['.js', '.ts', '.jsx', '.tsx', '.css', '.json'],
+    alias: {
+      '@': path.resolve(__dirname, 'src'),
+    },
   },
 };

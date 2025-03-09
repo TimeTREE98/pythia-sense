@@ -41,6 +41,7 @@
     "fork-ts-checker-webpack-plugin": "^7.3.0",
     "husky": "^9.1.7",
     "node-loader": "^2.1.0",
+    "postcss-loader": "^8.1.1",
     "prettier": "^3.5.3",
     "style-loader": "^3.3.4",
     "ts-loader": "^9.5.2",
@@ -48,9 +49,18 @@
     "typescript": "~4.5.4"
   },
   "dependencies": {
+    "@radix-ui/react-slot": "^1.1.2",
+    "@tailwindcss/postcss": "^4.0.12",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "electron-squirrel-startup": "^1.0.1",
+    "lucide-react": "^0.479.0",
+    "postcss": "^8.5.3",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "tailwind-merge": "^3.0.2",
+    "tailwindcss": "^4.0.12",
+    "tailwindcss-animate": "^1.0.7"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
