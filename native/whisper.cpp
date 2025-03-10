@@ -7,6 +7,8 @@
 #include <vector>
 #include <thread>
 #include <iostream>
+#include <mutex>
+#include <atomic>
 
 struct whisper_params
 {
@@ -41,6 +43,10 @@ struct whisper_state
     struct whisper_context *ctx;
     audio_async audio;
     whisper_params params;
+    std::atomic<bool> is_running{false};
+    std::thread processing_thread;
+    std::mutex transcription_mutex;
+    std::string last_transcription;
 
     whisper_state(int32_t length_ms, int32_t capture_id) : audio(length_ms)
     {
@@ -49,6 +55,125 @@ struct whisper_state
 };
 
 static whisper_state *global_whisper_state = nullptr;
+static Napi::ThreadSafeFunction tsfn;
+
+void ProcessAudioThread(whisper_state *whisperInstance)
+{
+    const int n_samples_step = whisperInstance->params.step_ms * WHISPER_SAMPLE_RATE / 1000;
+    const int n_samples_len = whisperInstance->params.length_ms * WHISPER_SAMPLE_RATE / 1000;
+    const int n_samples_keep = whisperInstance->params.keep_ms * WHISPER_SAMPLE_RATE / 1000;
+    const int n_samples_30s = 30 * WHISPER_SAMPLE_RATE;
+
+    std::vector<float> pcmf32(n_samples_30s, 0.0f);
+    std::vector<float> pcmf32_old;
+    std::vector<float> pcmf32_new(n_samples_30s, 0.0f);
+    std::vector<whisper_token> prompt_tokens;
+
+    int n_iter = 0;
+    const int n_new_line = 1;
+
+    while (whisperInstance->is_running.load())
+    {
+        while (true)
+        {
+            whisperInstance->audio.get(whisperInstance->params.step_ms, pcmf32_new);
+
+            if ((int)pcmf32_new.size() > 2 * n_samples_step)
+            {
+                whisperInstance->audio.clear();
+                continue;
+            }
+
+            if ((int)pcmf32_new.size() >= n_samples_step)
+            {
+                whisperInstance->audio.clear();
+                break;
+            }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+
+        const int n_samples_new = pcmf32_new.size();
+        const int n_samples_take = std::min((int)pcmf32_old.size(), std::max(0, n_samples_keep + n_samples_len - n_samples_new));
+
+        pcmf32.resize(n_samples_new + n_samples_take);
+
+        for (int i = 0; i < n_samples_take; i++)
+        {
+            pcmf32[i] = pcmf32_old[pcmf32_old.size() - n_samples_take + i];
+        }
+
+        memcpy(pcmf32.data() + n_samples_take, pcmf32_new.data(), n_samples_new * sizeof(float));
+        pcmf32_old = pcmf32;
+
+        whisper_full_params wparams = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
+
+        wparams.print_progress = false;
+        wparams.print_special = whisperInstance->params.print_special;
+        wparams.print_realtime = false;
+        wparams.print_timestamps = !whisperInstance->params.no_timestamps;
+        wparams.translate = whisperInstance->params.translate;
+        wparams.single_segment = true;
+        wparams.max_tokens = whisperInstance->params.max_tokens;
+        wparams.language = whisperInstance->params.language.c_str();
+        wparams.n_threads = whisperInstance->params.n_threads;
+        wparams.audio_ctx = whisperInstance->params.audio_ctx;
+        wparams.tdrz_enable = whisperInstance->params.tinydiarize;
+        wparams.temperature_inc = whisperInstance->params.no_fallback ? 0.0f : wparams.temperature_inc;
+        wparams.prompt_tokens = whisperInstance->params.no_context ? nullptr : prompt_tokens.data();
+        wparams.prompt_n_tokens = whisperInstance->params.no_context ? 0 : prompt_tokens.size();
+
+        if (whisper_full(whisperInstance->ctx, wparams, pcmf32.data(), pcmf32.size()) != 0)
+        {
+            fprintf(stderr, "Failed to process audio\n");
+            continue;
+        }
+
+        const int n_segments = whisper_full_n_segments(whisperInstance->ctx);
+        for (int i = 0; i < n_segments; ++i)
+        {
+            const char *text = whisper_full_get_segment_text(whisperInstance->ctx, i);
+
+            if (text != nullptr && strlen(text) > 0)
+            {
+                std::string transcription = text;
+
+                {
+                    std::lock_guard<std::mutex> lock(whisperInstance->transcription_mutex);
+                    whisperInstance->last_transcription = transcription;
+                }
+
+                if (tsfn)
+                {
+                    tsfn.BlockingCall([transcription](Napi::Env env, Napi::Function jsCallback)
+                                      { jsCallback.Call({Napi::String::New(env, transcription)}); });
+                }
+            }
+        }
+
+        ++n_iter;
+
+        if ((n_iter % n_new_line) == 0)
+        {
+            pcmf32_old = std::vector<float>(pcmf32.end() - n_samples_keep, pcmf32.end());
+
+            if (!whisperInstance->params.no_context)
+            {
+                prompt_tokens.clear();
+
+                const int n_segments = whisper_full_n_segments(whisperInstance->ctx);
+                for (int i = 0; i < n_segments; ++i)
+                {
+                    const int token_count = whisper_full_n_tokens(whisperInstance->ctx, i);
+                    for (int j = 0; j < token_count; ++j)
+                    {
+                        prompt_tokens.push_back(whisper_full_get_token_id(whisperInstance->ctx, i, j));
+                    }
+                }
+            }
+        }
+    }
+}
 
 Napi::Value Initialize(const Napi::CallbackInfo &info)
 {
@@ -131,7 +256,30 @@ Napi::Value Initialize(const Napi::CallbackInfo &info)
         return env.Undefined();
     }
 
-    if (!whisperInstance->audio.init(params.capture_id, WHISPER_SAMPLE_RATE))
+    global_whisper_state = whisperInstance;
+
+    return Napi::Boolean::New(env, true);
+}
+
+Napi::Value StartListening(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (global_whisper_state == nullptr)
+    {
+        Napi::TypeError::New(env, "Whisper is not initialized!").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    if (info.Length() < 1 || !info[0].IsFunction())
+    {
+        Napi::TypeError::New(env, "Expected a function as the first argument").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    whisper_state *whisperInstance = global_whisper_state;
+
+    if (!whisperInstance->audio.init(whisperInstance->params.capture_id, WHISPER_SAMPLE_RATE))
     {
         whisper_free(whisperInstance->ctx);
         delete whisperInstance;
@@ -141,7 +289,89 @@ Napi::Value Initialize(const Napi::CallbackInfo &info)
 
     whisperInstance->audio.resume();
 
-    global_whisper_state = whisperInstance;
+    if (whisperInstance->is_running.load())
+    {
+        whisperInstance->is_running.store(false);
+        if (whisperInstance->processing_thread.joinable())
+        {
+            whisperInstance->processing_thread.join();
+        }
+    }
+
+    Napi::Function callback = info[0].As<Napi::Function>();
+    tsfn = Napi::ThreadSafeFunction::New(
+        env,
+        callback,
+        "WhisperCallback",
+        0,
+        1);
+
+    whisperInstance->is_running.store(true);
+    whisperInstance->processing_thread = std::thread(ProcessAudioThread, whisperInstance);
+
+    return Napi::Boolean::New(env, true);
+}
+
+Napi::Value StopListening(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (global_whisper_state == nullptr)
+    {
+        Napi::TypeError::New(env, "Whisper is not initialized!").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    whisper_state *whisperInstance = global_whisper_state;
+
+    whisperInstance->audio.pause();
+
+    if (whisperInstance->is_running.load())
+    {
+        whisperInstance->is_running.store(false);
+        if (whisperInstance->processing_thread.joinable())
+        {
+            whisperInstance->processing_thread.join();
+        }
+    }
+
+    if (tsfn)
+    {
+        tsfn.Release();
+    }
+
+    return Napi::Boolean::New(env, true);
+}
+
+Napi::Value Cleanup(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (global_whisper_state == nullptr)
+    {
+        return Napi::Boolean::New(env, true);
+    }
+
+    whisper_state *whisperInstance = global_whisper_state;
+
+    if (whisperInstance->is_running.load())
+    {
+        whisperInstance->is_running.store(false);
+        if (whisperInstance->processing_thread.joinable())
+        {
+            whisperInstance->processing_thread.join();
+        }
+    }
+
+    if (tsfn)
+    {
+        tsfn.Release();
+    }
+
+    whisperInstance->audio.pause();
+
+    delete whisperInstance;
+    global_whisper_state = nullptr;
 
     return Napi::Boolean::New(env, true);
 }
@@ -149,6 +379,9 @@ Napi::Value Initialize(const Napi::CallbackInfo &info)
 Napi::Object Init(Napi::Env env, Napi::Object exports)
 {
     exports.Set(Napi::String::New(env, "initialize"), Napi::Function::New(env, Initialize));
+    exports.Set(Napi::String::New(env, "startListening"), Napi::Function::New(env, StartListening));
+    exports.Set(Napi::String::New(env, "stopListening"), Napi::Function::New(env, StopListening));
+    exports.Set(Napi::String::New(env, "cleanup"), Napi::Function::New(env, Cleanup));
     return exports;
 }
 

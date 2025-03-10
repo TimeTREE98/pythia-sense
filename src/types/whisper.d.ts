@@ -29,11 +29,9 @@ declare module 'whisper' {
   // whisper.cpp
   export interface Whisper {
     initialize(params: Params): boolean;
+    processAudio(): boolean;
+    startListening(callback: (text: string) => void): boolean;
+    stopListening(): boolean;
+    cleanup(): boolean;
   }
-}
-
-interface Window {
-  whisper: {
-    initialize: (params: Params) => Promise<boolean>;
-  };
 }
