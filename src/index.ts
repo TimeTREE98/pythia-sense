@@ -13,6 +13,7 @@ if (require('electron-squirrel-startup')) {
 }
 
 let whisper: Whisper | null = null;
+let mainWindow: BrowserWindow | null = null;
 
 if (app.isPackaged) {
   //
@@ -22,7 +23,7 @@ if (app.isPackaged) {
 
 const createWindow = (): void => {
   // Create the browser window.
-  const mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     height: 800,
     width: 1280,
     webPreferences: {
@@ -59,10 +60,26 @@ app.on('activate', () => {
   }
 });
 
+app.on('before-quit', () => {
+  if (whisper) {
+    whisper.cleanup();
+  }
+});
+
 ipcMain.handle('whisper:initialize', async (_, params: Params) => {
   return whisper.initialize(params);
 });
 
-ipcMain.handle('whisper:processAudio', async () => {
-  return whisper.processAudio();
+ipcMain.handle('whisper:startListening', async () => {
+  return whisper.startListening((text: string) => {
+    mainWindow.webContents.send('whisper:transcription', text);
+  });
+});
+
+ipcMain.handle('whisper:stopListening', async () => {
+  return whisper.stopListening();
+});
+
+ipcMain.handle('whisper:cleanup', async () => {
+  return whisper.cleanup();
 });
