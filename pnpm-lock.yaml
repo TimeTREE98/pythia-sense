@@ -111,6 +111,9 @@ importers:
       husky:
         specifier: ^9.1.7
         version: 9.1.7
+      node-addon-api:
+        specifier: ^8.3.1
+        version: 8.3.1
       node-loader:
         specifier: ^2.1.0
         version: 2.1.0(webpack@5.98.0)
@@ -2595,6 +2598,10 @@ packages:
 
   node-abort-controller@3.1.1:
     resolution: {integrity: sha512-AGK2yQKIjRuqnc6VkX2Xj5d+QW8xZ87pa1UK6yA6ouUyuxfHuMP6umE5QK7UmTeOAymo+Zx1Fxiuw9rVx8taHQ==}
+
+  node-addon-api@8.3.1:
+    resolution: {integrity: sha512-lytcDEdxKjGJPTLEfW4mYMigRezMlyJY8W4wxJK8zE533Jlb8L8dRuObJFWg2P+AuOIxoCgKF+2Oq4d4Zd0OUA==}
+    engines: {node: ^18 || ^20 || >= 21}
 
   node-api-version@0.2.0:
     resolution: {integrity: sha512-fthTTsi8CxaBXMaBAD7ST2uylwvsnYxh2PfaScwpMhos6KlSFajXQPcM4ogNE1q2s3Lbz9GCGqeIHC+C6OZnKg==}
@@ -6779,6 +6786,8 @@ snapshots:
       semver: 7.7.1
 
   node-abort-controller@3.1.1: {}
+
+  node-addon-api@8.3.1: {}
 
   node-api-version@0.2.0:
     dependencies:
