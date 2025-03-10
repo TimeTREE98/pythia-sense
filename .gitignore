@@ -90,3 +90,11 @@ typings/
 
 # Electron-Forge
 out/
+
+# Build
+build/
+bin/
+
+# IDE
+.vscode/
+.cursor/
