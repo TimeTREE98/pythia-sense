@@ -16,11 +16,19 @@ const App: React.FC = () => {
     console.log(result);
   };
 
+  const processAudio = async () => {
+    const result = await window.whisper.processAudio();
+    console.log(result);
+  };
+
   return (
     <div className="flex flex-col items-center min-h-screen justify-center">
       <div className="flex w-full max-w-sm items-center space-x-2">
         <Input placeholder="Model Path" value={modelPath} onChange={(e) => setModelPath(e.target.value)} />
         <Button onClick={initWhisper}>Initialize</Button>
+      </div>
+      <div className="flex w-full max-w-sm items-center space-x-2">
+        <Button onClick={processAudio}>Process Audio</Button>
       </div>
     </div>
   );

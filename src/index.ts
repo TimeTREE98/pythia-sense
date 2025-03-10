@@ -62,3 +62,7 @@ app.on('activate', () => {
 ipcMain.handle('whisper:initialize', async (_, params: Params) => {
   return whisper.initialize(params);
 });
+
+ipcMain.handle('whisper:processAudio', async () => {
+  return whisper.processAudio();
+});

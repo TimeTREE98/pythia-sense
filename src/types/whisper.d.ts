@@ -29,11 +29,13 @@ declare module 'whisper' {
   // whisper.cpp
   export interface Whisper {
     initialize(params: Params): boolean;
+    processAudio(): boolean;
   }
 }
 
 interface Window {
   whisper: {
     initialize: (params: Params) => Promise<boolean>;
+    processAudio: () => Promise<boolean>;
   };
 }

@@ -131,7 +131,24 @@ Napi::Value Initialize(const Napi::CallbackInfo &info)
         return env.Undefined();
     }
 
-    if (!whisperInstance->audio.init(params.capture_id, WHISPER_SAMPLE_RATE))
+    global_whisper_state = whisperInstance;
+
+    return Napi::Boolean::New(env, true);
+}
+
+Napi::Value ProcessAudio(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (global_whisper_state == nullptr)
+    {
+        Napi::TypeError::New(env, "Whisper is not initialized!").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    whisper_state *whisperInstance = global_whisper_state;
+
+    if (!whisperInstance->audio.init(whisperInstance->params.capture_id, WHISPER_SAMPLE_RATE))
     {
         whisper_free(whisperInstance->ctx);
         delete whisperInstance;
@@ -141,14 +158,13 @@ Napi::Value Initialize(const Napi::CallbackInfo &info)
 
     whisperInstance->audio.resume();
 
-    global_whisper_state = whisperInstance;
-
     return Napi::Boolean::New(env, true);
 }
 
 Napi::Object Init(Napi::Env env, Napi::Object exports)
 {
     exports.Set(Napi::String::New(env, "initialize"), Napi::Function::New(env, Initialize));
+    exports.Set(Napi::String::New(env, "processAudio"), Napi::Function::New(env, ProcessAudio));
     return exports;
 }
 

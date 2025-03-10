@@ -5,4 +5,7 @@ contextBridge.exposeInMainWorld('whisper', {
   initialize: (params: Params): Promise<boolean> => {
     return ipcRenderer.invoke('whisper:initialize', params);
   },
+  processAudio: (): Promise<boolean> => {
+    return ipcRenderer.invoke('whisper:processAudio');
+  },
 });
